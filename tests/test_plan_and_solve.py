@@ -1,31 +1,30 @@
-from typing import cast
-from unittest.mock import MagicMock
-
 import pytest
 
-from engram.agents.plan_and_solve import PlanAndSolveAgent, Planner
-from engram.llm import LLMClient
+from engram import ModelResponse, PlanAndSolveAgent
+from engram.agents.plan_and_solve import Planner
+from tests.fakes import FakeModel
 
 
 def test_plan_and_solve_runs_every_step() -> None:
-    mock_llm = MagicMock()
-    mock_llm.respond.side_effect = [
-        '["Compute the value", "Return the answer"]',
-        "The computed value is 96.",
-        "The final answer is 96.",
-    ]
-    agent = PlanAndSolveAgent(cast(LLMClient, mock_llm))
+    model = FakeModel(
+        [
+            ModelResponse(text='["Compute the value", "Return the answer"]', model="fake"),
+            ModelResponse(text="The computed value is 96.", model="fake"),
+            ModelResponse(text="The final answer is 96.", model="fake"),
+        ]
+    )
+    agent = PlanAndSolveAgent(model)
 
     assert agent.run("Solve the problem.") == "The final answer is 96."
-    assert mock_llm.respond.call_count == 3
-    final_prompt = mock_llm.respond.call_args_list[2].args[0]
-    assert "Step 1:\nThe computed value is 96." in final_prompt
+    assert agent.last_plan == ("Compute the value", "Return the answer")
+    assert "Step 1:\\nThe computed value is 96." in repr(model.inputs[2])
 
 
 def test_planner_accepts_fenced_json() -> None:
-    response = '```json\n["First step", "Second step"]\n```'
-
-    assert Planner._parse_plan(response) == ["First step", "Second step"]
+    assert Planner._parse_plan('```json\n["First step", "Second step"]\n```') == [
+        "First step",
+        "Second step",
+    ]
 
 
 @pytest.mark.parametrize("response", ["not json", "[]", '["valid", ""]'])

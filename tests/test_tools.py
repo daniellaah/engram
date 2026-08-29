@@ -1,37 +1,91 @@
-from engram.tools import ToolRegistry, _format_search_results
+from typing import cast
+
+import pytest
+
+from engram.tools import (
+    Tool,
+    ToolInvocation,
+    ToolPipeline,
+    ToolRegistry,
+    ToolStatus,
+    calculate,
+    tool,
+)
 
 
-def test_registry_registers_describes_and_executes_tool() -> None:
-    registry = ToolRegistry()
-    registry.register("uppercase", "Convert text to uppercase.", str.upper)
-
-    assert registry.execute("uppercase", "hello") == "HELLO"
-    assert registry.descriptions() == "- uppercase: Convert text to uppercase."
+def add(a: int, b: int = 1) -> int:
+    """Add two integers."""
+    return a + b
 
 
-def test_registry_reports_unknown_tool() -> None:
-    registry = ToolRegistry()
+def test_typed_tool_builds_schema_and_validates() -> None:
+    created = Tool.from_callable(add)
+    schema = created.to_schema()
 
-    assert registry.execute("missing", "input") == "Unknown tool: missing"
-
-
-def test_search_formatter_prefers_answer_box() -> None:
-    payload = {
-        "answer_box": {"answer": "42"},
-        "organic_results": [{"title": "Ignored", "snippet": "Ignored"}],
-    }
-
-    assert _format_search_results(payload, "answer") == "42"
+    assert schema["name"] == "add"
+    assert schema["parameters"]["properties"]["a"]["type"] == "integer"
+    assert created.invoke({"a": "2", "b": 3}).content == "5"
 
 
-def test_search_formatter_compacts_organic_results() -> None:
-    payload = {
-        "organic_results": [
-            {"title": "First", "snippet": "First result"},
-            {"title": "Second", "snippet": "Second result"},
-        ]
-    }
+def test_registry_returns_structured_errors() -> None:
+    registry = ToolRegistry([Tool.from_callable(add)])
 
-    assert _format_search_results(payload, "query") == (
-        "[1] First\nFirst result\n\n[2] Second\nSecond result"
+    missing = registry.invoke("missing", {})
+    invalid = registry.invoke("add", {})
+
+    assert missing.status is ToolStatus.ERROR
+    assert missing.error_code == "unknown_tool"
+    assert invalid.error_code == "invalid_arguments"
+
+
+@pytest.mark.asyncio
+async def test_async_tool_execution() -> None:
+    async def uppercase(value: str) -> str:
+        """Convert text to uppercase."""
+        return value.upper()
+
+    registry = ToolRegistry([Tool.from_callable(uppercase)])
+    result = await registry.ainvoke("uppercase", {"value": "hello"})
+
+    assert result.content == "HELLO"
+    assert "duration_ms" in result.metadata
+
+
+def test_pipeline_passes_previous_result() -> None:
+    registry = ToolRegistry([Tool.from_callable(add)])
+
+    def use_previous(previous: object) -> dict[str, int]:
+        assert hasattr(previous, "content")
+        return {"a": int(previous.content), "b": 4}
+
+    pipeline = ToolPipeline(
+        registry,
+        [
+            ToolInvocation("add", {"a": 2, "b": 3}),
+            ToolInvocation("add", use_previous),
+        ],
     )
+
+    assert [result.content for result in pipeline.run()] == ["5", "9"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [("2 + 3 * 4", "14"), ("sqrt(16) + 2", "6"), ("pi * 2", str(3.141592653589793 * 2))],
+)
+def test_safe_calculator(expression: str, expected: str) -> None:
+    assert calculate(expression) == expected
+
+
+def test_safe_calculator_rejects_code() -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        calculate("__import__('os').getcwd()")
+
+
+def test_tool_decorator() -> None:
+    def greeting_function(name: str) -> str:
+        """Greet a person."""
+        return f"Hello, {name}."
+
+    created = cast(Tool, tool(greeting_function, name="greet"))
+    assert created.invoke({"name": "Ada"}).content == "Hello, Ada."

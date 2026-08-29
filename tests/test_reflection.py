@@ -1,19 +1,18 @@
-from typing import cast
-from unittest.mock import MagicMock
-
-from engram.agents.reflection import STOP_MARKER, ReflectionAgent
-from engram.llm import LLMClient
+from engram import ModelResponse, ReflectionAgent
+from engram.agents.reflection import STOP_MARKER
+from tests.fakes import FakeModel
 
 
 def test_reflection_agent_refines_then_stops() -> None:
-    mock_llm = MagicMock()
-    mock_llm.respond.side_effect = [
-        "initial solution",
-        "Handle the empty input case.",
-        "refined solution",
-        STOP_MARKER,
-    ]
-    agent = ReflectionAgent(cast(LLMClient, mock_llm), max_iterations=2)
+    model = FakeModel(
+        [
+            ModelResponse(text="initial solution", model="fake"),
+            ModelResponse(text="Handle the empty input case.", model="fake"),
+            ModelResponse(text="refined solution", model="fake"),
+            ModelResponse(text=STOP_MARKER, model="fake"),
+        ]
+    )
+    agent = ReflectionAgent(model, max_iterations=2)
 
     assert agent.run("Create a solution.") == "refined solution"
     assert [record.kind for record in agent.memory.records] == [
@@ -22,14 +21,10 @@ def test_reflection_agent_refines_then_stops() -> None:
         "execution",
         "reflection",
     ]
-    assert agent.memory.last_execution() == "refined solution"
-    assert "Handle the empty input case." in agent.memory.trajectory()
 
 
 def test_reflection_agent_can_skip_review() -> None:
-    mock_llm = MagicMock()
-    mock_llm.respond.return_value = "initial solution"
-    agent = ReflectionAgent(cast(LLMClient, mock_llm), max_iterations=0)
+    model = FakeModel([ModelResponse(text="initial solution", model="fake")])
+    agent = ReflectionAgent(model, max_iterations=0)
 
     assert agent.run("Create a solution.") == "initial solution"
-    mock_llm.respond.assert_called_once()

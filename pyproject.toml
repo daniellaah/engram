@@ -1,7 +1,7 @@
 [project]
 name = "engram"
 version = "0.1.0"
-description = "A lightweight Python framework for building multi-provider AI agents"
+description = "A lightweight, typed framework for understandable AI agents"
 readme = "README.md"
 authors = [
     { name = "Gao Bo", email = "lilocryxuan@gmail.com" }
@@ -10,10 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "openai>=2,<3",
     "pydantic>=2,<3",
-    "pydantic-settings>=2,<3",
     "python-dotenv>=1,<2",
-    "structlog>=25,<26",
-    "tenacity>=9,<10",
 ]
 
 [build-system]
@@ -25,7 +22,6 @@ dev = [
     "mypy>=1.18,<2",
     "pytest>=9,<10",
     "pytest-asyncio>=1,<2",
-    "respx>=0.22,<1",
     "ruff>=0.14,<1",
 ]
 
